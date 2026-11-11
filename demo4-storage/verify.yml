@@ -67,11 +67,11 @@
         checks:
           - name: "ODF classes ceph-rbd (expandable), cephfs, noobaa"
             ok: >-
-              {{ (storage_classes.resources | selectattr('metadata.name', 'equalto', 'ocs-storagecluster-ceph-rbd')
+              {{ (storage_classes.resources | selectattr('metadata.name', 'equalto', 'ocs-external-storagecluster-ceph-rbd')
                   | selectattr('allowVolumeExpansion', 'defined') | selectattr('allowVolumeExpansion') | list | length == 1)
-                 and (storage_classes.resources | selectattr('metadata.name', 'in', ['ocs-storagecluster-cephfs', 'openshift-storage.noobaa.io']) | list | length == 2) }}
-          - name: "ODF snapshot class ocs-storagecluster-rbdplugin-snapclass"
-            ok: "{{ st.snapclasses | selectattr('metadata.name', 'equalto', 'ocs-storagecluster-rbdplugin-snapclass') | list | length == 1 }}"
+                 and (storage_classes.resources | selectattr('metadata.name', 'in', ['ocs-external-storagecluster-cephfs', 'openshift-storage.noobaa.io']) | list | length == 2) }}
+          - name: "ODF snapshot class ocs-external-storagecluster-rbdplugin-snapclass"
+            ok: "{{ st.snapclasses | selectattr('metadata.name', 'equalto', 'ocs-external-storagecluster-rbdplugin-snapclass') | list | length == 1 }}"
           - name: "Ceph HEALTH_OK"
             ok: "{{ (st.ceph[0].status.ceph.health | default('')) == 'HEALTH_OK' }}"
           - name: "User workload monitoring on (Part 7 alert)"

@@ -4,7 +4,7 @@ kind: PersistentVolumeClaim
 metadata:
   name: logbook-data
 spec:
-  storageClassName: ocs-storagecluster-ceph-rbd
+  storageClassName: ocs-external-storagecluster-ceph-rbd
   accessModes: [ReadWriteOnce]
   volumeMode: Filesystem
   resources:

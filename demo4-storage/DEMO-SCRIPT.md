@@ -38,14 +38,16 @@ Setup and verify only **list** the ODF classes (by provisioner, not by assumed n
 
 | Demo needs | Found by | Expected (ODF default name) |
 |---|---|---|
-| Block, RWO, `allowVolumeExpansion: true` | provisioner `openshift-storage.rbd.csi.ceph.com` | `ocs-storagecluster-ceph-rbd` |
-| File, RWX | provisioner `openshift-storage.cephfs.csi.ceph.com` | `ocs-storagecluster-cephfs` |
+| Block, RWO, `allowVolumeExpansion: true` | provisioner `openshift-storage.rbd.csi.ceph.com` | `ocs-external-storagecluster-ceph-rbd` |
+| File, RWX | provisioner `openshift-storage.cephfs.csi.ceph.com` | `ocs-external-storagecluster-cephfs` |
 | Buckets | provisioner `openshift-storage.noobaa.io/obc` | `openshift-storage.noobaa.io` |
-| Block snapshots | driver `openshift-storage.rbd.csi.ceph.com` | `ocs-storagecluster-rbdplugin-snapclass` |
+| Block snapshots | driver `openshift-storage.rbd.csi.ceph.com` | `ocs-external-storagecluster-rbdplugin-snapclass` |
 
 Checked on the demo cluster on 2026-10-22 (read-only): ODF 4.22.6, `HEALTH_OK`, and all four match the default names. `ocs-storagecluster-ceph-rbd` is the cluster default and allows expansion, and so does cephfs. The cluster also has `ocs-storagecluster-ceph-rbd-virtualization` (used by OpenShift Virtualization), `ocs-storagecluster-ceph-rgw` (S3 through the Ceph object gateway) and `local-volume` (`kubernetes.io/no-provisioner`, a real example for the "Local storage" slide). The demo doesn't use those three.
 
-The manifests use the default names. If verify finds different names, the names in the manifests change, never the cluster. If the block class doesn't allow expansion, Part 7 drops the "Expand PVC" step and only shows the alert. Which class is the cluster default is whatever it is today, so the manifests always name their class explicitly.
+**Branch `rhdp-external-odf`:** an RHDP workshop cluster (checked 2026-11-11) runs ODF 4.21 in *external* mode, where every name carries `external`: `ocs-external-storagecluster-ceph-rbd` (default, expandable), `ocs-external-storagecluster-cephfs`, `openshift-storage.noobaa.io` and `ocs-external-storagecluster-rbdplugin-snapclass`. This branch uses those names in the table above, the manifests, setup, verify and the speaker notes. In external mode the Ceph cluster runs outside OpenShift, so Part 6 has no OSD pods to show and the dashboard shows the external cluster's capacity.
+
+The manifests use the ODF names in the table above. If verify finds different names, the names in the manifests change, never the cluster. If the block class doesn't allow expansion, Part 7 drops the "Expand PVC" step and only shows the alert. Which class is the cluster default is whatever it is today, so the manifests always name their class explicitly.
 
 ## The NFS export (Part 2)
 
@@ -95,12 +97,19 @@ Run from the repo root, logged in as cluster admin (`oc login -u peter …`). Th
 
 | Situation | Run |
 |---|---|
+| Once, on a cluster without a lab file server (`NFS_SERVER=in-cluster`, the default on branch `rhdp-external-odf`) | `.venv/bin/ansible-playbook demo4-storage/nfs-server.yml`: see "No file server: NFS inside the cluster" below. Teardown and reset leave it running; `-e state=absent` removes it after teardown |
 | First time, or after teardown | `.venv/bin/ansible-playbook demo4-storage/setup.yml`: the project and roles, class `nfs-static` and PVs `nfs-pv1`…`10`, and the logbook in its Part 1 state. It waits until `/logbook.txt` answers. Safe to re-run: it never undoes a demo in progress |
 | After a rehearsal or a run | `.venv/bin/ansible-playbook demo4-storage/reset.yml`: teardown, then setup |
 | Always, right before presenting | `.venv/bin/ansible-playbook demo4-storage/verify.yml`: must end with "All good - ready to present Demo 4" |
 | Remove the demo | `.venv/bin/ansible-playbook demo4-storage/teardown.yml`: deletes the projects, the PVs and the class, and empties `pv1`…`pv10` on the server (the directories stay). It leaves ODF alone |
 
 Both verify's write test and teardown's emptying run *inside the cluster* (`tasks/nfs-shelf.yml`). Each binds a throwaway claim to every NFS PV in a helper project (`demo-storage-nfs-helper`), runs one pod that mounts all ten, and then recreates the PVs as Available. No root access to the server is needed, and the same steps will work when the PVs move to the storage VLAN, which the laptop can't reach. They refuse to run while a demo claim holds one of the PVs.
+
+### No file server: NFS inside the cluster
+
+On a cluster that can't reach a lab file server (an RHDP workshop cluster, branch `rhdp-external-odf`), `nfs-server.yml` plays the file server. It creates project `demo-storage-nfs-server` (`manifests/nfs-server.yaml`): an image built from CentOS Stream 9 with `nfs-utils` (it isn't in the UBI repositories), a 100 GiB thin ODF block claim mounted at `/exports`, and one pod running the kernel NFS v4 server with the same export options as the lab, `/exports *(rw,sync,fsid=0,all_squash,anonuid=3000,anongid=3000)`, and `pv1`…`pv10` owned by 3000:3000. `fsid=0` makes `/exports` the NFS v4 root, so the PVs mount `<ip>:/pv1` (without it a containerised kernel server looks the path up on the node and answers "No such file or directory"). With `NFS_SERVER=in-cluster`, the playbooks point the PVs at the Service's cluster IP. The kubelet mounts NFS from the node, which reaches cluster IPs but can't resolve Service names.
+
+The trade-off: the kernel NFS server needs a **privileged** pod (its service account gets the `privileged` SCC), the only one in the demo. It's an honest talking point, too: someone has to run the file server, and here it sits on top of ODF. Checked on the RHDP cluster on 2026-11-11: the nodes ship the `nfsd` module and `virt_use_nfs` is on. Mounts are `hard`, so remove the server only after teardown (the playbook refuses while NFS PVs exist).
 
 ### What the cluster needs
 

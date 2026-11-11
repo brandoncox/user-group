@@ -898,13 +898,13 @@ oc get pv -l storage=nfs-static</code></pre>
     </div>
     <aside class="notes">
 Administrator perspective. Storage → StorageClasses: three from ODF -
-      ocs-storagecluster-ceph-rbd (block), -cephfs (file) and
+      ocs-external-storagecluster-ceph-rbd (block), -cephfs (file) and
       openshift-storage.noobaa.io (object) - plus whatever else the cluster
       has (the ★ default is whatever it is; our claims always name their
       class). Look only - this ODF is shared; the demo never edits a class. Open ceph-rbd: provisioner openshift-storage.rbd.csi.ceph.com,
       reclaim policy Delete, allow volume expansion true (Part 7 needs it).
       Storage → PersistentVolumeClaims → Create PersistentVolumeClaim (project
-      demo-storage): StorageClass ocs-storagecluster-ceph-rbd, name
+      demo-storage): StorageClass ocs-external-storagecluster-ceph-rbd, name
       logbook-data, access mode Single user (RWO), size 1 GiB, volume mode
       Filesystem. Create. Status Pending → Bound within seconds. Click the
       PersistentVolume link: a pvc-… object, cluster-scoped, made by the CSI
@@ -1022,7 +1022,7 @@ curl -s $LOGBOOK_RWX_URL/logbook.txt | tail</code></pre>
       two pods on the SAME node would both have started - RWO isn't one pod;
       ReadWriteOncePod is." Clean up: oc delete -f logbook-rwo.yaml.
       Now shared storage: oc create -f logbook-rwx.yaml - a claim on
-      ocs-storagecluster-cephfs with ReadWriteMany, and a DaemonSet: "one pod
+      ocs-external-storagecluster-cephfs with ReadWriteMany, and a DaemonSet: "one pod
       on every worker - typically used for agents like log collectors; today
       it's the clearest way to show many nodes on one volume". Topology shows
       the DaemonSet (DS) ring with one pod per worker. oc get pods -o wide:
@@ -1183,7 +1183,7 @@ oc get pods -n openshift-storage \
     <aside class="notes">
 As peter, Administrator perspective. LOOK ONLY: this ODF is shared - never
       click Edit, Add Capacity or Create StorageClass here. Storage → Data
-      Foundation → Storage Systems → ocs-storagecluster-storagesystem. Block and File tab: status
+      Foundation → Storage Systems → ocs-external-storagecluster (external mode). Block and File tab: status
       (green), raw capacity used vs available, the inventory (nodes, disks),
       the activity and performance graphs (IOPS, latency, throughput) and
       "Requested capacity" broken down by project - "which team is using my
@@ -1417,7 +1417,7 @@ oc set volume deployment/logbook --add \
     <aside class="notes">
 Storage → PersistentVolumeClaims → logbook-data → Actions → Create
       snapshot: name logbook-data-snap, snapshot class
-      ocs-storagecluster-rbdplugin-snapclass → Create. Storage →
+      ocs-external-storagecluster-rbdplugin-snapclass → Create. Storage →
       VolumeSnapshots: Ready in a few seconds - "however big the volume, the
       storage does copy-on-write".
       The mistake: oc exec deployment/logbook -- rm /data/logbook.txt. Reload

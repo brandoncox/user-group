@@ -4,8 +4,8 @@
   ansible.builtin.shell: |
     set -eu
     source "{{ playbook_dir }}/demo.env"
-    printf '{"ns":"%s","ns_display":"%s","ns_description":"%s","admin_user":"%s","edit_user":"%s","view_user":"%s","restore_ns":"%s","nfs_server":"%s","nfs_export":"%s"}\n' \
-      "$NS" "$NS_DISPLAY" "$NS_DESCRIPTION" "$ADMIN_USER" "$EDIT_USER" "$VIEW_USER" "$RESTORE_NS" "$NFS_SERVER" "$NFS_EXPORT"
+    printf '{"ns":"%s","ns_display":"%s","ns_description":"%s","admin_user":"%s","edit_user":"%s","view_user":"%s","restore_ns":"%s","nfs_server":"%s","nfs_export":"%s","nfs_server_ns":"%s"}\n' \
+      "$NS" "$NS_DISPLAY" "$NS_DESCRIPTION" "$ADMIN_USER" "$EDIT_USER" "$VIEW_USER" "$RESTORE_NS" "$NFS_SERVER" "$NFS_EXPORT" "$NFS_SERVER_NS"
   args:
     executable: /bin/bash
   register: demo_env
@@ -23,3 +23,27 @@
     api_version: storage.k8s.io/v1
     kind: StorageClass
   register: storage_classes
+
+# NFS_SERVER=in-cluster: the NFS server pod of nfs-server.yml. The kubelet
+# mounts from the node, which can't resolve Service names: use the cluster IP
+- name: In-cluster NFS server - Service
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Service
+    namespace: "{{ nfs_server_ns }}"
+    name: nfs-server
+  register: nfs_svc
+  when: nfs_server == 'in-cluster' and nfs_server_lookup | default(true)
+
+- name: In-cluster NFS server - its address
+  ansible.builtin.set_fact:
+    nfs_server: "{{ nfs_svc.resources[0].spec.clusterIP }}"
+    nfs_export: ""   # /exports is the server's NFS v4 root: the PVs mount <ip>:/pvN
+  when: nfs_svc.resources | default([]) | length > 0
+
+- name: In-cluster NFS server - present
+  ansible.builtin.assert:
+    that: nfs_server != 'in-cluster'
+    fail_msg: "NFS_SERVER=in-cluster but there is no NFS server in {{ nfs_server_ns }} - run nfs-server.yml first"
+    quiet: true
+  when: nfs_server_lookup | default(true)

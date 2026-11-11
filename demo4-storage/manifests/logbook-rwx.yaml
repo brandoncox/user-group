@@ -5,7 +5,7 @@ metadata:
   name: logbook-shared
   labels: {app: logbook-rwx}
 spec:
-  storageClassName: ocs-storagecluster-cephfs
+  storageClassName: ocs-external-storagecluster-cephfs
   accessModes: [ReadWriteMany]
   resources:
     requests:

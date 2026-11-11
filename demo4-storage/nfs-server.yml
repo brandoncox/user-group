@@ -1,0 +1,103 @@
+# Demo 4 - OpenShift Storage: an NFS server inside the cluster, for clusters
+# without a lab file server (manifests/nfs-server.yaml). Run it once before
+# setup.yml with NFS_SERVER=in-cluster (demo.env): setup then points the PVs
+# at its Service. It's the "file server", so teardown and reset leave it be.
+# Safe to re-run.
+#
+#   .venv/bin/ansible-playbook demo4-storage/nfs-server.yml
+#   .venv/bin/ansible-playbook demo4-storage/nfs-server.yml -e state=absent   (after teardown.yml)
+- name: Demo 4 - in-cluster NFS server
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    state: present
+    nfs_server_lookup: false   # tasks/settings.yml: the Service may not exist yet
+  tasks:
+    - name: Settings
+      ansible.builtin.include_tasks: tasks/settings.yml
+
+    # ------------------------------------------------------------ remove
+    - name: Remove - only when no NFS PV points at the server
+      when: state == 'absent'
+      block:
+        - name: Remove - NFS PVs
+          kubernetes.core.k8s_info:
+            api_version: v1
+            kind: PersistentVolume
+            label_selectors: [storage=nfs-static]
+          register: shelf
+
+        - name: Remove - no NFS PVs left
+          ansible.builtin.assert:
+            that: shelf.resources | length == 0
+            fail_msg: "NFS PVs still exist - run teardown.yml first"
+            quiet: true
+
+        - name: Remove - project {{ nfs_server_ns }}
+          kubernetes.core.k8s:
+            state: absent
+            api_version: v1
+            kind: Namespace
+            name: "{{ nfs_server_ns }}"
+            wait: true
+            wait_timeout: 300
+
+        - name: Removed
+          ansible.builtin.meta: end_play
+
+    # ------------------------------------------------------------ create
+    - name: Project {{ nfs_server_ns }}
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ nfs_server_ns }}"
+            labels: {app.kubernetes.io/part-of: demo4-storage}
+            annotations:
+              openshift.io/display-name: NFS server (demo 4)
+              openshift.io/description: The "lab file server" for the static NFS volumes of Part 2
+
+    - name: Server objects (image build, data volume, Deployment, Service)
+      kubernetes.core.k8s:
+        namespace: "{{ nfs_server_ns }}"
+        src: "{{ playbook_dir }}/manifests/nfs-server.yaml"
+
+    - name: Image - built?
+      kubernetes.core.k8s_info:
+        api_version: image.openshift.io/v1
+        kind: ImageStreamTag
+        namespace: "{{ nfs_server_ns }}"
+        name: nfs-server:latest
+      register: image
+
+    - name: Image - start a build
+      ansible.builtin.command: oc start-build nfs-server -n {{ nfs_server_ns }} --wait
+      when: image.resources | length == 0
+      changed_when: true
+
+    - name: Server - wait until it accepts connections
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        namespace: "{{ nfs_server_ns }}"
+        name: nfs-server
+      register: rollout
+      until: (rollout.resources[0].status.readyReplicas | default(0)) == 1
+      retries: 60
+      delay: 5
+
+    - name: Server - Service address
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Service
+        namespace: "{{ nfs_server_ns }}"
+        name: nfs-server
+      register: svc
+
+    - name: Ready
+      ansible.builtin.debug:
+        msg:
+          - "NFS server: {{ svc.resources[0].spec.clusterIP }}:/exports (pv1..pv10), project {{ nfs_server_ns }}"
+          - "Next: setup.yml with NFS_SERVER=in-cluster (demo.env)"
