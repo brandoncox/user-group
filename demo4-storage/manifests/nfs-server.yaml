@@ -1,0 +1,138 @@
+# Part 2 without a lab file server: an NFS v4 server inside the cluster,
+# applied by nfs-server.yml into its own project (demo-storage-nfs-server).
+# It plays the external file server of DEMO-SCRIPT.md, "The NFS export":
+# export /exports (the NFS v4 root: <server>:/pvN) with all_squash to
+# 3000:3000 and directories pv1..pv10,
+# on an ODF block volume (a namespaced claim - ODF itself is untouched).
+# The PVs point at the Service's cluster IP: the kubelet mounts NFS from the
+# node, which reaches cluster IPs but can't resolve Service names.
+# The kernel NFS server needs a privileged pod (it mounts the nfsd file
+# system); everything else in the demo runs restricted.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nfs-server
+  labels: {app.kubernetes.io/part-of: demo4-storage}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: nfs-server-privileged
+  labels: {app.kubernetes.io/part-of: demo4-storage}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:openshift:scc:privileged
+subjects:
+  - {kind: ServiceAccount, name: nfs-server}
+---
+# nfs-utils isn't in the UBI repositories: build on CentOS Stream 9
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: nfs-server
+  labels: {app.kubernetes.io/part-of: demo4-storage}
+spec:
+  lookupPolicy: {local: true}   # the Deployment's "image: nfs-server:latest"
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: nfs-server
+  labels: {app.kubernetes.io/part-of: demo4-storage}
+spec:
+  source:
+    dockerfile: |
+      FROM quay.io/centos/centos:stream9
+      RUN dnf -y install nfs-utils && dnf clean all
+  strategy:
+    dockerStrategy: {}
+  output:
+    to: {kind: ImageStreamTag, name: nfs-server:latest}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nfs-server
+  labels: {app.kubernetes.io/part-of: demo4-storage}
+data:
+  run.sh: |
+    #!/bin/bash
+    # NFS v4 only (port 2049): no mountd/rpcbind ports exposed, like the lab server
+    set -eu
+    mount -t nfsd nfsd /proc/fs/nfsd        # loads the nfsd module on the node if needed
+    for n in $(seq 1 10); do
+      mkdir -p /exports/pv$n
+      chown 3000:3000 /exports/pv$n
+      chmod 0755 /exports/pv$n
+    done
+    # fsid=0: /exports is the NFS v4 root, so clients mount <server>:/pvN. Without
+    # it the kernel looks up the path /exports on the node, not in this container
+    echo '/exports *(rw,sync,fsid=0,all_squash,anonuid=3000,anongid=3000,no_subtree_check)' > /etc/exports
+    mkdir -p /run/rpcbind /var/lib/nfs/rpc_pipefs
+    rpcbind -w
+    exportfs -ra
+    rpc.mountd -N 3
+    rpc.nfsd -N 3 8
+    exportfs -v
+    trap 'rpc.nfsd 0; exportfs -ua; exit 0' TERM INT
+    sleep infinity & wait
+---
+# Thin-provisioned: 100Gi like the lab file system ("df shows ~100G")
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nfs-server-data
+  labels: {app.kubernetes.io/part-of: demo4-storage}
+spec:
+  storageClassName: ocs-external-storagecluster-ceph-rbd
+  accessModes: [ReadWriteOnce]
+  resources: {requests: {storage: 100Gi}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nfs-server
+  labels: {app: nfs-server, app.kubernetes.io/part-of: demo4-storage}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}   # one RWO volume, one server
+  selector:
+    matchLabels: {app: nfs-server}
+  template:
+    metadata:
+      labels: {app: nfs-server}
+    spec:
+      serviceAccountName: nfs-server
+      containers:
+        - name: nfs-server
+          image: nfs-server:latest
+          command: ["/bin/bash", "/opt/nfs/run.sh"]
+          ports:
+            - {name: nfs, containerPort: 2049, protocol: TCP}
+          readinessProbe:
+            tcpSocket: {port: 2049}
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          volumeMounts:
+            - {name: data, mountPath: /exports}
+            - {name: run, mountPath: /opt/nfs}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: nfs-server-data}
+        - name: run
+          configMap: {name: nfs-server}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nfs-server
+  labels: {app.kubernetes.io/part-of: demo4-storage}
+spec:
+  selector: {app: nfs-server}
+  ports:
+    - {name: nfs, port: 2049, protocol: TCP}

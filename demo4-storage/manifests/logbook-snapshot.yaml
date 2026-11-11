@@ -4,6 +4,6 @@ kind: VolumeSnapshot
 metadata:
   name: logbook-data-snap
 spec:
-  volumeSnapshotClassName: ocs-storagecluster-rbdplugin-snapclass
+  volumeSnapshotClassName: ocs-external-storagecluster-rbdplugin-snapclass
   source:
     persistentVolumeClaimName: logbook-data

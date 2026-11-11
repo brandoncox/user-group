@@ -23,8 +23,8 @@
         fail_msg: "StorageClass {{ item }} not found - list the ODF classes and adjust the manifests (never the cluster)"
         quiet: true
       loop:
-        - ocs-storagecluster-ceph-rbd
-        - ocs-storagecluster-cephfs
+        - ocs-external-storagecluster-ceph-rbd
+        - ocs-external-storagecluster-cephfs
         - openshift-storage.noobaa.io
 
     # ------------------------------------------------------------ project
@@ -124,7 +124,7 @@
       ansible.builtin.debug:
         msg:
           - "Project {{ ns }}: {{ admin_user }} admin, {{ edit_user }} edit + monitoring-rules-edit, {{ view_user }} view"
-          - "NFS shelf: nfs-pv1..10 on {{ nfs_server }}:{{ nfs_export }} (class nfs-static)"
+          - "NFS shelf: nfs-pv1..10 on {{ nfs_server }}:{{ nfs_export }}/pv1..pv10 (class nfs-static)"
           - "Logbook: https://{{ route.resources[0].spec.host }}/logbook.txt"
           - "Last line: {{ page.content.splitlines() | last }}"
           - "Next: verify.yml"
